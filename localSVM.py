@@ -160,15 +160,17 @@ def print_letters(images, target, top_n):
     # set up the figure size in inches
     fig = plt.figure(figsize=(12, 12))
     fig.subplots_adjust(left=0, right=1, bottom=0, top=1, hspace=0.05, wspace=0.05)
+    plt.rcParams['font.family'] = 'Arial'
     for i in range(top_n):
         # plot the images in a matrix of 20x20
         p = fig.add_subplot(10, 10, i + 1, xticks=[], yticks=[])
         p.imshow(images[i], cmap=plt.cm.bone)
         # label the image with the target value
-        print target[i].decode('utf-8')
-        p.text(0, 50, "i_" + str(target[i]).decode('utf-8') )
-        #p.text(0, 60, str(i))
+        #print target[i]
 
+        p.text(0, 50,  target[i])
+        #p.text(0, 60, str(i))
+    plt.show()
 def evaluate_cross_validation(clf, X, y, K):
     # create a k-fold croos validation iterator
     cv = KFold(len(y), K, shuffle=True, random_state=0)
@@ -177,6 +179,7 @@ def evaluate_cross_validation(clf, X, y, K):
     print scores
     print ("Mean score: {0:.3f} (+/-{1:.3f})").format(
         np.mean(scores), sem(scores))
+    plt.show()
 
 def train_and_evaluate(clf, X_train, X_test, y_train, y_test):
 
@@ -206,6 +209,8 @@ def labeledLetters(image_name):
     img = down_sample(img_data)
     Personal_letters = getLetters(img)
     saveData(Personal_letters, file_name=image_name.split('.')[0])
+    plt.show()
+
 
 def trainSVMWithLetters(data_to_load):
     Personal_letters = loadData(data_to_load)
@@ -227,7 +232,6 @@ def mergeDataSet(datasets, new_file_name = 'dataSetMerge'):
     saveData(letters, new_file_name)
 
 def getSVMPerdit(X_test, data_name = 'dataSetMerge'):
-     print "Perdit:"
      Personal_letters = loadData(data_name)
      X_train = Personal_letters.data
      y_train = Personal_letters.target
@@ -239,11 +243,14 @@ def getSVMPerdit(X_test, data_name = 'dataSetMerge'):
 if __name__ == '__main__':
     datasets = ['train_data/alice/0079', 'train_data/alice/0080']
     #mergeDataSet(datasets, new_file_name = 'dataSetMerge')
-    #labeledLetters('train_data/alice/0080.jpg')
+    #labeledLetters('train_data/alice/0065.jpg')
     #Personal_letters_test = loadData('dataSetMerge')
-    #Personal_letters = loadData('train_data/alice/0079')
+    Personal_letters = loadData('train_data/alice/0079')
     #y_pred = getSVMPerdit(Personal_letters_test.data, data_name = 'train_data/alice/0079')
     #print metrics.classification_report(Personal_letters_test.target,  y_pred)
-    #print_letters(Personal_letters.images, Personal_letters.target, 7)
+    print_letters(Personal_letters.images, Personal_letters.target, 7)
     #plt.show()
-    #trainSVMWithLetters('train_data/alice/0079')
+    print "TOTOTTOT"
+    #trainSVMWithLetters('train_data/alice/0065')
+
+

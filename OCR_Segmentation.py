@@ -13,41 +13,44 @@ import matplotlib.patches as mpatches
 from image_extractor import word_segmentation, down_sample
 from matplotlib import pyplot as plt
 from localSVM import *
-
+import skimage
 def opening(mask, struc):
   return ndimage.binary_opening(mask, structure=struc).astype(mask.dtype)
 
 
 #Build struct (matrix) with the give size and the given num of ones
-def buildStruct(size, num_of_ones):
-    struc = np.zeros((30,30))
+def build_struct(size, num_of_ones):
+    struc = np.zeros((size,size))
     for i in range(0,num_of_ones):
-        struc[i] = 1
-
+        struc[(size//2), i] = 1
     return struc
 
 def findHeight(regions):
     #Find the height according to the max value in the histogram
     max_val = 1000
-    min_val = 10
-    length_of_bin = 10
+    min_val = 8
+    length_of_bin =4
     heights =[]
     for region in regions:
         minr, minc, maxr, maxc = region.bbox
         current_hegiht = abs(maxr-minr)
-        if current_hegiht>min_val and current_hegiht<max_val:
+        if current_hegiht>=min_val and current_hegiht<=max_val:
             heights.append(current_hegiht)
     [hist, bins] = np.histogram(heights, bins=range(min(heights), max(heights) + length_of_bin, length_of_bin))
+    #plt.hist(heights, bins=range(min(heights), max(heights) + length_of_bin, length_of_bin))
+    #plt.show()
+    counts = np.bincount(heights)
+    height = max(np.where(counts>=4)[0])
     index = np.argmax(hist)
-    height = bins[index+1]
+    #height = bins[index+1]
     return height
 
-def sortedByHeight(regions, regions_withoutWidth):
+def sortedByHeight(regions):
     new_regions = []
     height = findHeight(regions)
-    factor = 0.5
+    factor = 0.7
     height_max = height + height*factor
-    height_min = height - height*factor
+    height_min = max(5,height - height*factor)
     for region in regions:
         minr, minc, maxr, maxc = region.bbox
         curent_height = abs(maxr-minr)
@@ -58,7 +61,7 @@ def sortedByHeight(regions, regions_withoutWidth):
 def findWidth(regions, num=0):
     #Find the height according to the max value in the histogram
     max_val = 100000
-    min_val = 10
+    min_val = 8
     length_of_bin = 5
     widths =[]
     for region in regions:
@@ -89,8 +92,8 @@ def sortedBywidth(regions):
 def findArea(regions):
      #Find the height according to the max value in the histogram
     max_val = 1000
-    min_val = 10
-    length_of_bin = 10
+    min_val = 8
+    length_of_bin = 5
     areas =[]
     for region in regions:
         minr, minc, maxr, maxc = region.bbox
@@ -118,9 +121,6 @@ def getPictureInTheimageRestrinct(regions, image):
     return regions_after_filters
 
 def getPictureInTheimage(regions, image):
-    width_threshold = findWidth(regions)
-    height_threshold = findHeight(regions)
-    image_height = len(image)
     image_width = len(image[1])
 
     height_threshold = 50
@@ -149,27 +149,49 @@ def filter_according_to_pic(regions, region_with_pics):
     regions_without_pic = [region for region in regions if region not in region_in_pic]
     return regions_without_pic
 
-def segmentToRegions(image, num_of_ones, bw):
+def build_close_struct(size, second):
+    struct = np.zeros((size,size))
+    struct[(size//2), 0] = 1
+    index = 1
+    if second:
+        index = 5
+    for i in range(0,index):
+        struct[(size//2)+i, 0] = 1
+        struct[(size//2)-i, 0] = 1
+    return struct
+
+def segmentToRegions(image, num_of_ones, bw, second = False):
     #apply threshold
-    struct = buildStruct(30, num_of_ones)
+    struct = build_struct(30, num_of_ones)
     img_close =opening(bw, struct)
+    struct  =build_close_struct(30, second)
+    img_close =  ndimage.binary_closing(img_close, structure=struct).astype(img_close.dtype)
     if (num_of_ones == 0):
         img_close = bw
     # remove artifacts connected to image border
     cleared = img_close.copy()
-    clear_border(cleared)
+    #clear_border(cleared)
     # label image regions
     label_image = label(cleared)
     borders = np.logical_xor(img_close, cleared)
     label_image[borders] = -1
-    image_label_overlay = label2rgb(label_image, image=image)
     regions = regionprops(label_image)
+    if (not second):
+        regions_sec = segmentToRegions(image, num_of_ones, bw, second= True)
+    else:
+        regions_sec =set()
+    regions = set(regions)
+    regions_sec = set(regions_sec)
+    regions = regions.union(regions_sec)
     """
     fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(6, 6))
     ax.imshow(image_label_overlay)
+    #ax.imshow(img_close)
+
+
     for region in regions:
         # skip small images
-        if region.area < 10:
+        if region.area < 0:
             continue
         # draw rectangle around segmented coins
         minr, minc, maxr, maxc = region.bbox
@@ -177,6 +199,8 @@ def segmentToRegions(image, num_of_ones, bw):
         rect = mpatches.Rectangle((minc, minr), maxc - minc, maxr - minr,
                                   fill=False, edgecolor='blue', linewidth=2)
         ax.add_patch(rect)
+
+    plt.show()
     """
     return regions
 
@@ -205,7 +229,7 @@ def removePic(regions, image):
     return region_wihtout_pic
 
 def plotImage(regions, image, num = 0):
-    fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(6, 6))
+    fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(12, 12))
     ax.imshow(image)
     index = 0
     for row in regions:
@@ -216,10 +240,11 @@ def plotImage(regions, image, num = 0):
         if num!=0 and index>num:
                 break
         index +=1
-
+        if (isinstance(row, skimage.measure._regionprops._RegionProperties)):
+            row = [row]
         for region in row:
             # skip small images
-            if region.area < 10:
+            if region.area < 2:
                 continue
             # draw rectangle around segmented coins
             minr, minc, maxr, maxc = region.bbox
@@ -234,15 +259,15 @@ def plotImage(regions, image, num = 0):
 
 def needToInsert(region, max_index_row, min_index_row, max_index_col, min_index_col, printT = True ):
      minr, minc, maxr, maxc = region.bbox
-     spces = 50
+     spces = 40
      if (minc+spces >= min_index_col and maxc <= max_index_col + spces):
          if (max_index_row >= minr and  min_index_row <= minr ):
-            if printT:
-                print "Good Region", minr, minc, maxr, maxc,  minr , min_index_col, max_index_col, min_index_row, max_index_row
             return True
      return False
 
 def getThreshold(regions, image,width_threshold ):
+    if (len(regions)==0):
+        return 0,0
     regions_sorted_by_cols = sorted(regions, key=lambda x:  x.bbox[3], reverse=True)
     most_right_region = regions_sorted_by_cols[0]
     right_index = most_right_region.bbox[3]
@@ -251,19 +276,7 @@ def getThreshold(regions, image,width_threshold ):
          minr, minc, maxr, maxc = region.bbox
          if (minc <= left_index and maxc >= left_index):
              left_index = minc
-    """
-    image_height = len(image)
-    image_width = len(image[0])
-    startCols = sorted( [region.bbox[3] for region in regions])
-    #If we got somthing bigger then helf of the page try the next common width
-    if (image_width/2< width_threshold):
-        pass
-        #width_threshold = findWidth(regions,1)
 
-    max_index =startCols[-1]
-    min_index = min([region.bbox[1] for region in regions_sorted_by_cols[0:2]])
-    #min_index = max_index -width_threshold
-    """
     min_index = left_index
     max_index = right_index
     return min_index, max_index
@@ -277,41 +290,100 @@ def findOtherRegionsToInsert(regions, region, min_index_col, max_index_col):
     regions_by_row = sorted(regions_in_row, key=lambda x:  x.bbox[3])
     return regions_by_row
 
+def filtred_rows_by_height(row):
+     row= sorted(row, key=lambda x:  x.bbox[0])
+     min_row = row[0].bbox[0]
+     max_row = row[0].bbox[2]
+     buffer_space =  (max_row-min_row) / 3
+     region_in_row = []
+     for region in row:
+        minr, minc, maxr, maxc = region.bbox
+        if (maxr<max_row + buffer_space):
+            region_in_row.append(region)
+     return  region_in_row
+
+def get_regions_end(row):
+    return [region for region in row ]
+
+def check_cols(last_rows):
+    #goes over the rows and check their ending points
+    if len(last_rows)<3:
+        return last_rows
+    need_to_split = True
+    max_region = 0
+    min_region = 0
+    for i in range(1,3):
+        current_row = last_rows[-i]
+        last_row = last_rows[-i-1]
+        num_of_cols, max_region, min_region = get_num_of_cols(current_row, last_row, min_region, max_region)
+        if (num_of_cols<=1):
+            need_to_split = False
+    if (need_to_split):
+        print "Split!!!!!!!!!!!"
+        for i in range(1,4):
+            current_row = last_rows[-i]
+            update_row = []
+            for region in current_row:
+                minr, minc, maxr, maxc = region.bbox
+                if (minc>=min_region -5):
+                    update_row.append(region)
+                    print "Insert___"
+            last_rows[-i] = update_row
+    return last_rows
+
+
+def get_num_of_cols(current_row, last_row, min_region, max_region):
+    buffer_size = 20
+    current_row = sorted(current_row, key=lambda x:  x.bbox[3], reverse=True)
+    last_row = sorted(last_row, key=lambda x:  x.bbox[3], reverse=True)
+    for index, region in enumerate(current_row):
+        minr, minc, maxr, maxc = region.bbox
+        for index_scond, region_second  in enumerate(last_row):
+            minr_second, minc_seoncd, maxr_second, maxc_second = region_second.bbox
+            if (len(last_row)>index_scond+1 and len(current_row)>index+1 and minc+buffer_size>= minc_seoncd and minc-buffer_size<=minc_seoncd):
+                next_maxc = current_row[index+1].bbox[3]
+                next_maxc_second = last_row[index_scond+1].bbox[3]
+                if (next_maxc + buffer_size>=next_maxc_second and next_maxc - buffer_size<= next_maxc_second ):
+                    if (max_region==0 or next_maxc + buffer_size>=max_region and next_maxc - buffer_size<= max_region ):
+                        return 2, next_maxc, minc
+    return 1, -1, -1
+
+def delete_regions(regions, regions_to_insert):
+    regions_to_insert = [region for region in regions_to_insert if region not in regions]
+    return regions_to_insert
+
+def get_plat_list(regions):
+    plat_list = []
+    for row in regions:
+        for region in row:
+            plat_list.append(region);
+    return plat_list
+
 def orderRows(regions, image):
+    regions = set(regions)
     width_threshold = findWidth(regions)
-    height_threshold = findHeight(regions)
     #Todo-change it
     sorted_region = []
     regions_to_insert = sorted(regions, key=lambda x:  x.bbox[0])
-    max_index =0
-    height_row = 60
-    min_index = len(image[0])
     height = len(image)
-    current_row = []
-    rowse = [region.bbox for region in regions_to_insert]
-    print rowse[0:6]
     while( len(regions_to_insert)!=0):
-        min_index, max_index = getThreshold(regions_to_insert, image, width_threshold)
-        print "startand End indexs",min_index, max_index
         for index_row in range(0,height):
+            min_index, max_index = getThreshold(regions_to_insert, image, width_threshold)
+            regions_already_inside =[]
+            region_to_insert_update = regions_to_insert
             for region in regions_to_insert:
-                #print index_row, region.bbox[0]
-                if (needToInsert(region, index_row, index_row - 2, max_index, min_index)):
+                if (region not in regions_already_inside and needToInsert(region, index_row, index_row - 2, max_index, min_index)):
                     current_row =[]
                     current_row.append(region)
-                    regions_to_insert.remove(region)
-                    current_row.extend( findOtherRegionsToInsert(regions_to_insert, region, min_index,max_index ))
+                    region_in_the_row = findOtherRegionsToInsert(regions_to_insert, region, min_index,max_index )
+                    current_row.extend( region_in_the_row)
+                    current_row = filtred_rows_by_height(current_row)
                     current_row = sorted(current_row, key=lambda x:  x.bbox[3], reverse=True)
-                    #sorted_region.append(region)
-                    print "Row: "
-                    for row in current_row:
-                        print row.bbox[1],row.bbox[3]
-                    print "END"
-
                     sorted_region.append(current_row)
-                    #regions_to_insert.remove(region)
-                    regions_to_insert = [region for region in regions_to_insert if region not in current_row]
-
+                    #sorted_region = check_cols(sorted_region)
+                    regions_already_inside = get_plat_list(sorted_region)
+                    region_to_insert_update =[region for region in regions_to_insert if region not in regions_already_inside]
+            regions_to_insert = region_to_insert_update
     return sorted_region
 
 #Find all the rows and Order them
@@ -319,37 +391,46 @@ def segmentRows(image):
     thresh = threshold_otsu(image)
     bw = np.any(image > thresh, -1)
     print 1
-    regions = segmentToRegions(image, 0, bw)
+    regions = segmentToRegions(image, 0, bw);
+
     print 2
     region_with_pics = getPictureInTheimage(regions, image)
+
     print 3
     bw = removeRegionsFromImage(image, region_with_pics)
     print 4
-    plt.imshow(bw)
-    regions = segmentToRegions(image, 6, bw)
+    regions = segmentToRegions(image, 25, bw)
+    #plotImage(regions, image)
+
     #regions_withoutWidth = sortedBywidth(regions)
-    regions_1 = sortedByHeight(regions, [])
+    regions_1 = sortedByHeight(regions)
+    #plotImage(regions_1, image)
+
+    print "Here",  len(regions_1)
     region_with_pics = getPictureInTheimageRestrinct(regions_1, image)
     region_after_filter = filter_according_to_pic(regions_1, region_with_pics)
+    plotImage(region_after_filter, image)
+
     rows = orderRows(region_after_filter, image)
     plotImage(rows, image)
     print 5
     #Plot the rows in the rihgt order
-    for i in range(1,len(rows),2):
+
+    for i in range(1,len(rows)):
         pass
         #plotImage(rows, image, i)
+        #plt.show()
+
+    plt.show()
     #width_threshold = findWidth(regions)
+
     return rows
 
-def segmentLettersFromRow(row, image):
+def segment_letters_from_row(row, image):
     letters_in_row = []
     for region in row:
-        print "Row!!!!!!!!!!!!!!!!!!!a"
         minr, minc, maxr, maxc = region.bbox
         new_image = image[minr-5:maxr+5,minc-5:maxc+5]
-        #new_image = image
-        #new_image[0:len(image), 0:len(image[0])]
-        #new_image[1:minr]
         thresh = threshold_otsu(new_image)
         new_image = image.copy()
 
@@ -365,7 +446,6 @@ def segmentLettersFromRow(row, image):
         new_image[maxr:len(image), maxc:len(image[0])] = 0
 
         bw = np.any(new_image > thresh, -1)
-        #bw = ndimage.binary_opening(bw, structure= np.zeros((3,3))).astype(bw.dtype)
         # remove artifacts connected to image border
         cleared = bw.copy()
         clear_border(cleared)
@@ -373,22 +453,9 @@ def segmentLettersFromRow(row, image):
         label_image = label(cleared)
         borders = np.logical_xor(bw, cleared)
         label_image[borders] = -1
-        image_label_overlay = label2rgb(label_image, image=new_image)
-        #fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(6, 6))
-        #ax.imshow(label_image)
         for letter in regionprops(label_image):
             if letter.area < 5:
                 continue
-            # draw rectangle around segmented coins
-            #minr1, minc1, maxr1, maxc1 = letter.bbox
-            #roi = image[ minr: maxr, minc:maxc]
-            #plt.figure()
-            #plt.imshow(roi)
-            """
-            rect = mpatches.Rectangle((minc1, minr1), maxc1 - minc1, maxr1 - minr1,
-                                      fill=False, edgecolor='red', linewidth=2)
-            """
-            #ax.add_patch(rect)
             letters_in_row.append(letter)
     print "Finise"
     return letters_in_row
@@ -397,14 +464,14 @@ def segmentLettersFromRow(row, image):
 def segmentLetters(rows, image):
     words = []
     for row in rows:
-        words_in_row = segmentLettersFromRow(row, image)
+        words_in_row = segment_letters_from_row(row, image)
         words.extend(words_in_row)
     return words
 
 def inRegion(letter, region):
     minr, minc, maxr, maxc = region.bbox
     minr_letter, minc_letter, maxr_letter, maxc_letter = letter.bbox
-    buffer_val = 100
+    buffer_val = 5
     if (minc_letter + buffer_val >= minc and maxc_letter - buffer_val <= maxc and minr_letter + buffer_val >= minr and maxr_letter - buffer_val <= maxr ):
         return True
     return  False
@@ -425,10 +492,27 @@ def calLetters(image):
     letters = regionprops(label_image)
     return letters
 
-def segmentLettersFast(rows, image, letters = None, old_letters = 0):
+def sorte_letters_in_region(letters):
+    sorted_letters = []
+    next_line_letters =[]
+    letters_sorted_by_cols = sorted(letters, key=lambda x:  x.bbox[3])
+    higher_letter = sorted(letters, key=lambda x:  x.bbox[0])[0]
+    min_height = higher_letter.bbox[0]
+    max_height = higher_letter.bbox[2]
+    for letter in letters_sorted_by_cols:
+        if (letter.bbox[0]<=max_height):
+            sorted_letters.append(letter)
+        else:
+            next_line_letters.append(letter)
+    sorted_letters.extend(next_line_letters)
+    return  sorted_letters
+
+
+def segment_letters_fast(rows, image, letters = None, old_letters = 0):
     words = []
     if (letters == None):
         letters = calLetters(image)
+
     i = 0
     for row in rows:
         letters_in_row = []
@@ -441,18 +525,15 @@ def segmentLettersFast(rows, image, letters = None, old_letters = 0):
                     letters_in_row.append(letter)
                     lettersToRemove.append(letter)
             letters = [letter for letter in letters if letter not in lettersToRemove]
-        letters_in_region_sort = sorted(letters_in_row, key=lambda x:  x.bbox[3], reverse=True)
+        letters_in_region_sort = sorte_letters_in_region(letters_in_row)
+        #letters_in_region_sort = sorted(letters_in_row, key=lambda x:  x.bbox[3], reverse=True)
         words.extend(letters_in_region_sort)
-    print len(letters)
     if (len(letters)>0 and len(letters)!= old_letters):
         print "New Round!!!!!"
-        segmentLettersFast(rows, image, letters, len(letters))
+        segment_letters_fast(rows, image, letters, len(letters))
     return words , letters
 
 def OCRWith_SVM(letters):
-
-
-
     images = [letter['image'] for letter in letters]
     images_resize =[resize(letter, (40, 15)) for letter in images]
     data = []
@@ -468,18 +549,22 @@ def OCRWith_SVM(letters):
 def imageSegmentation(image_name):
     #Read image
     img_data = cv2.imread(image_name)
-    im = down_sample(img_data)  # make it smaller to avoid out of memory. TODO: later on we can skip it?
+    #im = down_sample(img_data)  # make it smaller to avoid out of memory. TODO: later on we can skip it?
+    im  = img_data
     #The rows are in the right order
     rows = segmentRows(im)
     #The words are in the right order
     #letters = segmentLetters(rows, im)
-    letters, letters_remain = segmentLettersFast(rows, im)
+    """
+    letters, letters_remain = segment_letters_fast(rows, im)
     y_pred = OCRWith_SVM(letters)
     for i in range(1,20):
         plt.imshow(letters[i]['image'])
         print y_pred[i]
+    """
     plt.show()
 
 if __name__ == '__main__':
-    image_name = 'train_data/alice/0073.jpg'
+    image_name = 'train_data/wikiText15.jpg'
     imageSegmentation(image_name)
+    plt.show()
